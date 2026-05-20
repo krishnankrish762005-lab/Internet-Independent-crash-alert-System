@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Database View - SOS Config</title>
+    <style>
+        body { font-family: sans-serif; padding: 40px; background: #f4f6f9; }
+        .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); max-width: 900px; margin: auto; }
+        h2 { text-align: center; color: #333; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
+        th { background: #007BFF; color: white; }
+        tr:nth-child(even) { background: #f9f9f9; }
+
+        /* Button Styles */
+        .btn { 
+            display: inline-block; text-decoration: none; 
+            padding: 8px 15px; border-radius: 4px; margin-bottom: 10px; 
+            font-weight: bold;
+        }
+        .btn-add { background: #28a745; color: white; }
+        .btn-add:hover { background: #218838; }
+
+        .btn-sync { background: #ff9800; color: white; float: right; }
+        .btn-sync:hover { background: #e68a00; }
+
+        .btn-delete { 
+            background: #dc3545; color: white; padding: 5px 10px; 
+            border-radius: 4px; text-decoration: none; font-size: 13px;
+        }
+        .btn-delete:hover { background: #c82333; }
+
+        .clearfix::after { content: ""; clear: both; display: table; }
+    </style>
+</head>
+<body>
+
+<div class="container clearfix">
+    <a href="/" class="btn btn-add">← Add New Entry</a>
+    
+    <a href="/sync_pico" class="btn btn-sync">🔄 SYNC LATEST TO PICO</a>
+    
+    <h2>Registered Crash Alert Contacts</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Vehicle No.</th>
+                <th>Emergency 1</th>
+                <th>Emergency 2</th>
+                <th style="text-align:center;">Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr>
+                <td>{{ row['id'] }}</td>
+                <td>{{ row['vehicle'] }}</td>
+                <td>{{ row['emergency1'] }}</td>
+                <td>{{ row['emergency2'] }}</td>
+                <td style="text-align:center;">
+                    <a href="{{ url_for('delete_data', id=row['id']) }}" 
+                       class="btn-delete" 
+                       onclick="return confirm('Are you sure you want to delete this vehicle record?')">
+                       Delete
+                    </a>
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" style="text-align:center;">No Data Found</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+</body>
+</html>
