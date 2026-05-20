@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SOS Vehicle Admin</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pulltorefreshjs/0.1.22/index.umd.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; padding: 20px; }
+        .card { background: white; padding: 25px; border-radius: 12px; max-width: 700px; margin: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        h2 { text-align: center; color: #d32f2f; }
+        input { width: 100%; padding: 12px; margin: 8px 0; border: 2px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+        input:focus { border-color: #ff9800; outline: none; }
+        .btn-save { background: #28a745; color: white; border: none; padding: 12px; width: 100%; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 15px; margin-top: 5px; }
+        .btn-save:hover { background: #218838; }
+        .sync-section { border: 2px dashed #ff9800; padding: 15px; border-radius: 10px; margin-top: 20px; text-align: center; }
+        .btn-sync { background: #ff9800; color: white; border: none; padding: 15px; width: 100%; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 15px; }
+        .btn-sync:hover { background: #e68900; }
+        table { width: 100%; margin-top: 25px; border-collapse: collapse; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+        th { background: #f8f9fa; }
+        .btn-delete { color: #d32f2f; text-decoration: none; font-weight: bold; font-size: 14px; }
+
+        /* Flash Messages */
+        .flash { padding: 12px 16px; border-radius: 8px; margin-bottom: 12px; font-weight: bold; font-size: 14px; }
+        .flash.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .flash.error   { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .flash.info    { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+
+        #status { font-size: 13px; font-weight: bold; margin-top: 10px; transition: color 0.3s; }
+    </style>
+</head>
+<body id="ptr-area">
+    <div class="card">
+        <h2>📋 SOS Vehicle Database</h2>
+
+        <!-- Flash Messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endwith %}
+
+        <form method="POST" action="/save">
+            <input type="text" id="v_id" name="vehicle" placeholder="Vehicle ID (AA-00-AA-0000)" maxlength="13" required>
+            <input type="text" id="c1" name="emergency1" placeholder="Contact 1 (10 Digits)" maxlength="10" required>
+            <input type="text" id="c2" name="emergency2" placeholder="Contact 2 (10 Digits)" maxlength="10" required>
+            <button type="submit" class="btn-save">Save Vehicle Data</button>
+        </form>
+
+        <div class="sync-section">
+            <button id="syncBtn" class="btn-sync">🔄 SYNC LATEST TO PICO</button>
+            <p id="status">Device Status: Not Connected</p>
+        </div>
+
+        <table>
+            <thead>
+                <tr><th>Vehicle</th><th>Contact 1</th><th>Contact 2</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td>{{ row['vehicle'] }}</td>
+                    <td>{{ row['emergency1'] }}</td>
+                    <td>{{ row['emergency2'] }}</td>
+                    <td><a href="/delete/{{ row['id'] }}" class="btn-delete" onclick="return confirm('Delete this entry?')">Delete</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // 1. Vehicle ID — auto dash formatting
+        document.getElementById('v_id').addEventListener('input', (e) => {
+            let val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            let f = '';
+            for (let i = 0; i < val.length; i++) {
+                if (i === 2 || i === 4 || i === 6) f += '-';
+                f += val[i];
+            }
+            e.target.value = f.slice(0, 13);
+        });
+
+        // 2. Contacts — digits only
+        const restrictDigits = (id) => {
+            document.getElementById(id).addEventListener('input', (e) => {
+                e.target.value = e.target.value.replace(/[^0-9]/g, '').slice(0, 10);
+            });
+        };
+        restrictDigits('c1');
+        restrictDigits('c2');
+
+        // 3. Web Serial Sync
+        document.getElementById('syncBtn').addEventListener('click', async () => {
+            const statusLabel = document.getElementById('status');
+            let port;
+
+            try {
+                // Fetch latest data from Flask
+                const res = await fetch('/get_latest_data');
+                const rawData = await res.text();
+
+                if (rawData === "NO_DATA") {
+                    alert("No data found! Please save a vehicle entry first.");
+                    return;
+                }
+
+                // rawData = "CONFIG:TN-36-BG-4586,+919342915646,+916380131548"
+                const parts = rawData.replace("CONFIG:", "").split(",");
+                const vehicleID = parts[0];
+                const contact1  = parts[1]; // Already +91XXXXXXXXXX from backend
+                const contact2  = parts[2];
+
+                // Send both contacts to Pico
+                const formattedMessage = `SYNC,${vehicleID},${contact1},${contact2}\n`;
+
+                // Open Serial Port
+                port = await navigator.serial.requestPort();
+                await port.open({ baudRate: 115200 });
+
+                statusLabel.innerText = "⏳ Syncing with Pico...";
+                statusLabel.style.color = "#ff9800";
+
+                const writer = port.writable.getWriter();
+                await writer.write(new TextEncoder().encode(formattedMessage));
+                await new Promise(resolve => setTimeout(resolve, 800));
+                writer.releaseLock();
+
+                // Read acknowledgement from Pico
+                const reader = port.readable.getReader();
+                let ackText = '';
+                const readTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000));
+                try {
+                    while (true) {
+                        const { value, done } = await Promise.race([
+                            reader.read(),
+                            readTimeout.then(() => ({ done: true }))
+                        ]);
+                        if (done) break;
+                        ackText += new TextDecoder().decode(value);
+                        if (ackText.includes('ACK') || ackText.includes('OK')) break;
+                    }
+                } catch (_) {}
+                reader.releaseLock();
+                await port.close();
+
+                if (ackText.includes('ACK') || ackText.includes('OK')) {
+                    statusLabel.innerText = "✅ Sync Successful — Pico Updated!";
+                    statusLabel.style.color = "#28a745";
+                } else {
+                    statusLabel.innerText = "⚠️ Sent but no reply from Pico — check C++ serial handler";
+                    statusLabel.style.color = "#ff9800";
+                }
+
+            } catch (err) {
+                console.error("Serial Error:", err);
+                statusLabel.innerText = "❌ Error: Close Arduino Serial Monitor first!";
+                statusLabel.style.color = "#d32f2f";
+                if (port) await port.close().catch(() => {});
+            }
+        });
+
+        // 4. Pull to Refresh
+        PullToRefresh.init({
+            mainElement: '#ptr-area',
+            onRefresh() { window.location.reload(); }
+        });
+    </script>
+</body>
+</html>
